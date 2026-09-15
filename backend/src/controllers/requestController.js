@@ -1,48 +1,35 @@
 const { validationResult } = require('express-validator');
 const { query } = require('../database/db');
-
-const createNotification = async (userId, type, title, message, relatedId, relatedType) => {
-  try {
-    await query(
-      `INSERT INTO notifications (user_id, type, title, message, related_id, related_type)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [userId, type, title, message, relatedId, relatedType]
-    );
-  } catch (err) {
-    console.error('Notification creation failed (non-critical):', err.message);
-  }
-};
+const {
+  notifyNewRequest,
+  notifyRequestAccepted,
+  notifyRequestDeclined,
+} = require('../services/notificationService');
 
 const getRequests = async (req, res) => {
   const userId = req.user.id;
   const { type } = req.query; // 'sent' | 'received' | 'all'
 
   try {
-    let whereClause = '';
-    const params = [userId];
-
-    if (type === 'sent') {
-      whereClause = 'WHERE lr.sender_id = $1';
-    } else if (type === 'received') {
-      whereClause = 'WHERE lr.receiver_id = $1';
-    } else {
-      whereClause = 'WHERE (lr.sender_id = $1 OR lr.receiver_id = $1)';
-    }
+    let whereClause;
+    if (type === 'sent')     whereClause = 'WHERE lr.sender_id = $1';
+    else if (type === 'received') whereClause = 'WHERE lr.receiver_id = $1';
+    else                     whereClause = 'WHERE (lr.sender_id = $1 OR lr.receiver_id = $1)';
 
     const result = await query(
       `SELECT lr.id, lr.sender_id, lr.receiver_id, lr.skill_id, lr.request_type,
               lr.message, lr.status, lr.created_at, lr.updated_at,
-              s.name as skill_name, sc.name as skill_category,
-              sender.name as sender_name, sender.avatar_url as sender_avatar,
-              receiver.name as receiver_name, receiver.avatar_url as receiver_avatar
+              s.name  AS skill_name,  sc.name AS skill_category,
+              sender.name   AS sender_name,   sender.avatar_url   AS sender_avatar,
+              receiver.name AS receiver_name, receiver.avatar_url AS receiver_avatar
        FROM learning_requests lr
-       LEFT JOIN skills s ON s.id = lr.skill_id
+       LEFT JOIN skills s           ON s.id  = lr.skill_id
        LEFT JOIN skill_categories sc ON sc.id = s.category_id
-       JOIN users sender ON sender.id = lr.sender_id
+       JOIN users sender   ON sender.id   = lr.sender_id
        JOIN users receiver ON receiver.id = lr.receiver_id
        ${whereClause}
        ORDER BY lr.created_at DESC`,
-      params
+      [userId]
     );
 
     res.json({ requests: result.rows });
@@ -64,13 +51,14 @@ const createRequest = async (req, res) => {
   }
 
   try {
-    // Check receiver exists
-    const receiverCheck = await query('SELECT id, name FROM users WHERE id = $1 AND is_active = true', [receiver_id]);
+    const receiverCheck = await query(
+      'SELECT id FROM users WHERE id = $1 AND is_active = true AND is_suspended = false',
+      [receiver_id]
+    );
     if (receiverCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Recipient not found.' });
     }
 
-    // Check no duplicate pending request
     const existing = await query(
       `SELECT id FROM learning_requests
        WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'`,
@@ -88,16 +76,7 @@ const createRequest = async (req, res) => {
     );
 
     const request = result.rows[0];
-
-    // Notify receiver
-    await createNotification(
-      receiver_id,
-      'new_request',
-      'New Learning Request',
-      `${req.user.name} sent you a ${request_type} request.`,
-      request.id,
-      'request'
-    );
+    await notifyNewRequest(receiver_id, req.user.name, request_type, request.id);
 
     res.status(201).json({ request, message: 'Request sent successfully!' });
   } catch (err) {
@@ -122,15 +101,8 @@ const acceptRequest = async (req, res) => {
       return res.status(404).json({ error: 'Request not found, already processed, or access denied.' });
     }
 
-    const req_data = result.rows[0];
-    await createNotification(
-      req_data.sender_id,
-      'request_accepted',
-      'Request Accepted!',
-      `${req.user.name} accepted your ${req_data.request_type} request. Schedule a session!`,
-      id,
-      'request'
-    );
+    const { sender_id, request_type } = result.rows[0];
+    await notifyRequestAccepted(sender_id, req.user.name, request_type, id);
 
     res.json({ message: 'Request accepted.' });
   } catch (err) {
@@ -155,15 +127,8 @@ const declineRequest = async (req, res) => {
       return res.status(404).json({ error: 'Request not found or access denied.' });
     }
 
-    const req_data = result.rows[0];
-    await createNotification(
-      req_data.sender_id,
-      'request_declined',
-      'Request Declined',
-      `${req.user.name} declined your ${req_data.request_type} request.`,
-      id,
-      'request'
-    );
+    const { sender_id, request_type } = result.rows[0];
+    await notifyRequestDeclined(sender_id, req.user.name, request_type, id);
 
     res.json({ message: 'Request declined.' });
   } catch (err) {
@@ -180,7 +145,7 @@ const cancelRequest = async (req, res) => {
     const result = await query(
       `UPDATE learning_requests SET status = 'cancelled', updated_at = NOW()
        WHERE id = $1 AND sender_id = $2 AND status = 'pending'
-       RETURNING id, receiver_id, request_type`,
+       RETURNING id`,
       [id, userId]
     );
 

@@ -1,17 +1,19 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import {
-  HiHome, HiSearch, HiLightningBolt, HiInbox, HiCalendar, HiUser, HiX
+  HiHome, HiSearch, HiLightningBolt, HiInbox, HiCalendar, HiUser, HiX,
+  HiSparkles
 } from 'react-icons/hi'
 import Avatar from '../ui/Avatar'
 
 const navItems = [
-  { to: '/dashboard', icon: HiHome, label: 'Dashboard' },
-  { to: '/discover', icon: HiSearch, label: 'Discover' },
-  { to: '/skills', icon: HiLightningBolt, label: 'My Skills' },
-  { to: '/requests', icon: HiInbox, label: 'Requests' },
-  { to: '/sessions', icon: HiCalendar, label: 'Sessions' },
-  { to: '/profile', icon: HiUser, label: 'My Profile' },
+  { to: '/dashboard', icon: HiHome,         label: 'Dashboard' },
+  { to: '/discover',  icon: HiSearch,        label: 'Discover' },
+  { to: '/matches',   icon: HiSparkles,      label: 'Matches' },
+  { to: '/skills',    icon: HiLightningBolt, label: 'My Skills' },
+  { to: '/requests',  icon: HiInbox,         label: 'Requests' },
+  { to: '/sessions',  icon: HiCalendar,      label: 'Sessions' },
+  { to: '/profile',   icon: HiUser,          label: 'My Profile' },
 ]
 
 export default function Sidebar({ open, onClose }) {

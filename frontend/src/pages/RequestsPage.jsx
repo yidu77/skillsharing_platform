@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { requestsAPI, sessionsAPI, skillsAPI } from '../services/api'
+import { requestsAPI, sessionsAPI } from '../services/api'
 import Avatar from '../components/ui/Avatar'
 import { StatusBadge } from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
@@ -21,11 +21,9 @@ export default function RequestsPage() {
     interaction_type: 'online', location_or_link: '', notes: ''
   })
   const [sessionSaving, setSaving] = useState(false)
-  const [allSkills, setAllSkills] = useState([])
 
   useEffect(() => {
     fetchRequests()
-    skillsAPI.getAll().then(r => setAllSkills(r.data.skills || []))
   }, [])
 
   const fetchRequests = async () => {
@@ -174,13 +172,6 @@ export default function RequestsPage() {
                 {sessionModal.request.skill_name && ` for ${sessionModal.request.skill_name}`}
               </p>
             </div>
-
-            {sessionModal.request?.interaction_type === 'in-person' && (
-              <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-xl text-amber-800 text-xs">
-                <span>⚠️</span>
-                <span>For in-person sessions, consider meeting in a public campus location for safety.</span>
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>

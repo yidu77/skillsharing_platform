@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { usersAPI, requestsAPI, skillsAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import useDebounce from '../hooks/useDebounce'
 import Avatar from '../components/ui/Avatar'
 import { ProficiencyBadge } from '../components/ui/Badge'
 import { StarDisplay } from '../components/ui/StarRating'
@@ -9,61 +10,74 @@ import Modal from '../components/ui/Modal'
 import EmptyState from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import toast from 'react-hot-toast'
-import { HiSearch, HiAdjustments, HiX } from 'react-icons/hi'
+import { HiSearch, HiX } from 'react-icons/hi'
 
 const INTERACTION_TYPES = [
-  { value: 'all', label: 'Any format' },
-  { value: 'online', label: 'Online' },
+  { value: 'all',       label: 'Any format' },
+  { value: 'online',    label: 'Online' },
   { value: 'in-person', label: 'In-person' },
 ]
 
 const INTENT_TABS = [
-  { id: 'all', label: '🌐 Everyone', desc: 'Browse all students' },
-  { id: 'learn', label: '🎓 I want to learn', desc: 'Find students who can teach you' },
-  { id: 'teach', label: '📖 I want to teach', desc: 'Find students who want your skills' },
-  { id: 'exchange', label: '🔄 I want to exchange', desc: 'Find mutual skill exchange partners' },
-  { id: 'practice', label: '🤝 I want to practice', desc: 'Find co-learners' },
+  { id: 'all',      label: '🌐 Everyone',        desc: 'Browse all students' },
+  { id: 'learn',    label: '🎓 I want to learn',  desc: 'Find students who can teach you' },
+  { id: 'teach',    label: '📖 I want to teach',  desc: 'Find students who want your skills' },
+  { id: 'exchange', label: '🔄 I want to exchange',desc: 'Find mutual skill exchange partners' },
+  { id: 'practice', label: '🤝 I want to practice',desc: 'Find co-learners' },
 ]
+
+const filterByIntent = (users, intent) => {
+  if (intent === 'all')      return users
+  if (intent === 'learn')    return users.filter(u => u.teaching_skills?.length > 0)
+  if (intent === 'teach')    return users.filter(u => u.learning_goals?.length > 0)
+  if (intent === 'exchange') return users.filter(u => u.teaching_skills?.length > 0 && u.learning_goals?.length > 0)
+  if (intent === 'practice') return users.filter(u => u.learning_goals?.length > 0)
+  return users
+}
 
 export default function DiscoverPage() {
   const { user } = useAuth()
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [interaction, setInteraction] = useState('all')
+  const [users, setUsers]               = useState([])
+  const [loading, setLoading]           = useState(true)
+  const [search, setSearch]             = useState('')
+  const [interaction, setInteraction]   = useState('all')
   const [activeIntent, setActiveIntent] = useState('all')
-  const [categories, setCategories] = useState([])
+  const [categories, setCategories]     = useState([])
   const [selectedCategory, setSelectedCategory] = useState('')
 
+  // Debounce the text search so we don't fire an API call on every keystroke
+  const debouncedSearch = useDebounce(search, 350)
+
   const [requestModal, setRequestModal] = useState({ open: false, targetUser: null })
-  const [requestForm, setRequestForm] = useState({ request_type: 'learn', skill_id: '', message: '' })
+  const [requestForm, setRequestForm]   = useState({ request_type: 'learn', skill_id: '', message: '' })
   const [requestLoading, setRequestLoading] = useState(false)
   const [targetSkills, setTargetSkills] = useState([])
 
-  useEffect(() => { skillsAPI.getCategories().then(r => setCategories(r.data.categories || [])) }, [])
+  useEffect(() => {
+    skillsAPI.getCategories().then(r => setCategories(r.data.categories || []))
+  }, [])
 
-  const fetchUsers = useCallback(async () => {
+  useEffect(() => {
+    fetchUsers()
+  }, [debouncedSearch, interaction, selectedCategory]) // eslint-disable-line
+
+  const fetchUsers = async () => {
     setLoading(true)
     try {
       const params = {}
-      if (search) params.search = search
+      if (debouncedSearch)    params.search      = debouncedSearch
       if (interaction !== 'all') params.interaction = interaction
-      if (selectedCategory) params.category = selectedCategory
+      if (selectedCategory)   params.category    = selectedCategory
       const res = await usersAPI.getAll(params)
       setUsers(res.data.users || [])
-    } catch (err) {
+    } catch {
       toast.error('Failed to load students.')
     } finally {
       setLoading(false)
     }
-  }, [search, interaction, selectedCategory])
+  }
 
-  useEffect(() => {
-    const timer = setTimeout(fetchUsers, 300)
-    return () => clearTimeout(timer)
-  }, [fetchUsers])
-
-  const openRequestModal = async (targetUser) => {
+  const openRequestModal = (targetUser) => {
     setRequestModal({ open: true, targetUser })
     setRequestForm({ request_type: 'learn', skill_id: '', message: '' })
     setTargetSkills(targetUser.teaching_skills || [])
@@ -74,10 +88,10 @@ export default function DiscoverPage() {
     setRequestLoading(true)
     try {
       await requestsAPI.create({
-        receiver_id: requestModal.targetUser.id,
-        skill_id: requestForm.skill_id || null,
+        receiver_id:  requestModal.targetUser.id,
+        skill_id:     requestForm.skill_id || null,
         request_type: requestForm.request_type,
-        message: requestForm.message,
+        message:      requestForm.message,
       })
       toast.success('Request sent!')
       setRequestModal({ open: false, targetUser: null })
@@ -88,16 +102,10 @@ export default function DiscoverPage() {
     }
   }
 
-  const filterByIntent = (usersArr) => {
-    if (activeIntent === 'all') return usersArr
-    if (activeIntent === 'learn') return usersArr.filter(u => u.teaching_skills?.length > 0)
-    if (activeIntent === 'teach') return usersArr.filter(u => u.learning_goals?.length > 0)
-    if (activeIntent === 'exchange') return usersArr.filter(u => u.teaching_skills?.length > 0 && u.learning_goals?.length > 0)
-    if (activeIntent === 'practice') return usersArr.filter(u => u.learning_goals?.length > 0)
-    return usersArr
-  }
+  const clearFilters = () => { setSearch(''); setSelectedCategory(''); setInteraction('all') }
+  const hasFilters = search || selectedCategory || interaction !== 'all'
 
-  const filtered = filterByIntent(users)
+  const displayed = filterByIntent(users, activeIntent)
 
   return (
     <div className="space-y-6">
@@ -115,8 +123,7 @@ export default function DiscoverPage() {
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors
               ${activeIntent === tab.id
                 ? 'bg-brand-600 text-white'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
           >
             {tab.label}
           </button>
@@ -128,35 +135,48 @@ export default function DiscoverPage() {
         <div className="flex-1 min-w-48 relative">
           <HiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
           <input
-            type="text" placeholder="Search by name, skill, or bio…"
-            className="input pl-9" value={search}
+            type="text"
+            placeholder="Search by name, skill, or bio…"
+            className="input pl-9"
+            value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
-        <select className="input w-auto" value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}>
+        <select className="input w-auto" value={selectedCategory}
+          onChange={e => setSelectedCategory(e.target.value)}>
           <option value="">All categories</option>
           {categories.map(c => <option key={c.id} value={c.name}>{c.icon} {c.name}</option>)}
         </select>
-        <select className="input w-auto" value={interaction} onChange={e => setInteraction(e.target.value)}>
+        <select className="input w-auto" value={interaction}
+          onChange={e => setInteraction(e.target.value)}>
           {INTERACTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        {(search || selectedCategory || interaction !== 'all') && (
-          <button onClick={() => { setSearch(''); setSelectedCategory(''); setInteraction('all') }}
-            className="btn-ghost text-sm">
+        {hasFilters && (
+          <button onClick={clearFilters} className="btn-ghost text-sm">
             <HiX className="w-4 h-4" /> Clear
           </button>
         )}
       </div>
 
-      <p className="text-sm text-slate-500">{filtered.length} student{filtered.length !== 1 ? 's' : ''} found</p>
+      <p className="text-sm text-slate-500">
+        {loading ? 'Searching…' : `${displayed.length} student${displayed.length !== 1 ? 's' : ''} found`}
+      </p>
 
-      {loading ? <PageSpinner /> : filtered.length === 0 ? (
-        <EmptyState icon="🔍" title="No students found"
-          description="Try adjusting your search filters or check back later as more students join." />
+      {loading ? <PageSpinner /> : displayed.length === 0 ? (
+        <EmptyState
+          icon="🔍"
+          title="No students found"
+          description="Try adjusting your filters or search terms. More students join every day!"
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map(u => (
-            <StudentCard key={u.id} student={u} currentUser={user} onRequest={() => openRequestModal(u)} />
+          {displayed.map(u => (
+            <StudentCard
+              key={u.id}
+              student={u}
+              currentUser={user}
+              onRequest={() => openRequestModal(u)}
+            />
           ))}
         </div>
       )}
@@ -181,15 +201,17 @@ export default function DiscoverPage() {
               <label className="label">Request Type *</label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { value: 'learn', label: '🎓 I want to learn', desc: 'from them' },
-                  { value: 'teach', label: '📖 I want to teach', desc: 'them' },
-                  { value: 'exchange', label: '🔄 Exchange', desc: 'mutual skills' },
-                  { value: 'practice', label: '🤝 Practice', desc: 'together' },
+                  { value: 'learn',    label: '🎓 I want to learn', desc: 'from them' },
+                  { value: 'teach',    label: '📖 I want to teach',  desc: 'them' },
+                  { value: 'exchange', label: '🔄 Exchange',         desc: 'mutual skills' },
+                  { value: 'practice', label: '🤝 Practice',         desc: 'together' },
                 ].map(t => (
                   <button key={t.value} type="button"
                     onClick={() => setRequestForm(p => ({ ...p, request_type: t.value }))}
-                    className={`p-3 rounded-xl border text-left transition-colors ${requestForm.request_type === t.value
-                      ? 'border-brand-600 bg-brand-50' : 'border-slate-200 hover:border-slate-300'}`}
+                    className={`p-3 rounded-xl border text-left transition-colors
+                      ${requestForm.request_type === t.value
+                        ? 'border-brand-600 bg-brand-50'
+                        : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <p className="text-sm font-medium">{t.label}</p>
                     <p className="text-xs text-slate-500">{t.desc}</p>
@@ -213,7 +235,9 @@ export default function DiscoverPage() {
 
             <div>
               <label className="label">Message (optional)</label>
-              <textarea className="input min-h-[100px] resize-none" placeholder="Hi! I'd love to learn from you…"
+              <textarea
+                className="input min-h-[100px] resize-none"
+                placeholder="Hi! I'd love to learn from you…"
                 value={requestForm.message}
                 onChange={e => setRequestForm(p => ({ ...p, message: e.target.value }))}
               />
@@ -234,22 +258,26 @@ export default function DiscoverPage() {
   )
 }
 
-function StudentCard({ student, currentUser, onRequest }) {
+/* ─── StudentCard ───────────────────────────────────────────────────────────── */
+
+function StudentCard({ student, onRequest }) {
   return (
     <div className="card p-5 flex flex-col gap-4 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-3">
         <Avatar src={student.avatar_url} name={student.name} size="md" />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-slate-900">{student.name}</p>
-          <p className="text-xs text-slate-500 truncate">{student.university} · {student.year_of_study}</p>
+          <p className="text-xs text-slate-500 truncate">
+            {student.university}{student.year_of_study ? ` · ${student.year_of_study}` : ''}
+          </p>
           <div className="flex items-center gap-2 mt-1">
             <StarDisplay rating={student.average_rating} count={student.rating_count} />
             <span className="text-xs text-slate-400">·</span>
             <span className="text-xs text-slate-500">{student.completed_sessions} sessions</span>
           </div>
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
-          student.preferred_interaction === 'online' ? 'bg-blue-50 text-blue-600' :
+        <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 capitalize ${
+          student.preferred_interaction === 'online'    ? 'bg-blue-50 text-blue-600' :
           student.preferred_interaction === 'in-person' ? 'bg-green-50 text-green-600' :
           'bg-slate-50 text-slate-600'
         }`}>
@@ -269,11 +297,11 @@ function StudentCard({ student, currentUser, onRequest }) {
               <span key={s.skill_id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-700 rounded-full text-xs">
                 {s.skill_name}
                 <span className="text-violet-400">·</span>
-                <span className="text-violet-500 capitalize">{s.proficiency?.slice(0,3)}</span>
+                <span className="text-violet-500 capitalize">{s.proficiency?.slice(0, 3)}</span>
               </span>
             ))}
             {student.teaching_skills.length > 4 && (
-              <span className="text-xs text-slate-400">+{student.teaching_skills.length - 4}</span>
+              <span className="text-xs text-slate-400">+{student.teaching_skills.length - 4} more</span>
             )}
           </div>
         </div>
@@ -289,7 +317,7 @@ function StudentCard({ student, currentUser, onRequest }) {
               </span>
             ))}
             {student.learning_goals.length > 4 && (
-              <span className="text-xs text-slate-400">+{student.learning_goals.length - 4}</span>
+              <span className="text-xs text-slate-400">+{student.learning_goals.length - 4} more</span>
             )}
           </div>
         </div>

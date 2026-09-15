@@ -7,22 +7,22 @@ import Modal from '../components/ui/Modal'
 import EmptyState from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { StarPicker } from '../components/ui/StarRating'
+import { formatDate, formatTime, formatDuration, safeParseDate } from '../utils/helpers'
 import toast from 'react-hot-toast'
-import { format, parseISO } from 'date-fns'
-import { HiCheck, HiX, HiStar, HiVideoCamera, HiLocationMarker, HiClock } from 'react-icons/hi'
+import { HiCheck, HiStar, HiVideoCamera, HiLocationMarker, HiClock, HiArrowRight } from 'react-icons/hi'
 
 export default function SessionsPage() {
   const { user } = useAuth()
-  const [sessions, setSessions] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [sessions, setSessions]   = useState([])
+  const [loading, setLoading]     = useState(true)
   const [activeTab, setActiveTab] = useState('upcoming')
 
-  const [reviewModal, setReviewModal] = useState({ open: false, session: null })
-  const [reviewForm, setReviewForm] = useState({ rating: 0, comment: '' })
+  const [reviewModal, setReviewModal]   = useState({ open: false, session: null })
+  const [reviewForm, setReviewForm]     = useState({ rating: 0, comment: '' })
   const [reviewSaving, setReviewSaving] = useState(false)
 
   const [counterModal, setCounterModal] = useState({ open: false, session: null })
-  const [counterForm, setCounterForm] = useState({ counter_date: '', counter_time: '', counter_notes: '' })
+  const [counterForm, setCounterForm]   = useState({ counter_date: '', counter_time: '', counter_notes: '' })
 
   useEffect(() => { fetchSessions() }, [])
 
@@ -46,7 +46,7 @@ export default function SessionsPage() {
   const handleComplete = async (id) => {
     try {
       await sessionsAPI.complete(id)
-      toast.success('Marked as completed. Leave a review!')
+      toast.success('Marked as completed!')
       fetchSessions()
     } catch (err) { toast.error(err.response?.data?.error || 'Failed.') }
   }
@@ -61,7 +61,7 @@ export default function SessionsPage() {
   }
 
   const handleNoShow = async (id) => {
-    if (!confirm('Mark this as a no-show? This will affect the other person\'s reliability score.')) return
+    if (!confirm("Mark this as a no-show? This will affect the other person's reliability score.")) return
     try {
       await sessionsAPI.noShow(id)
       toast.success('Marked as no-show.')
@@ -72,7 +72,9 @@ export default function SessionsPage() {
   const openReview = async (session) => {
     try {
       const res = await reviewsAPI.checkReview(session.id)
-      if (res.data.has_reviewed) return toast('You already reviewed this session.', { icon: 'ℹ️' })
+      if (res.data.has_reviewed) {
+        return toast('You already reviewed this session.', { icon: 'ℹ️' })
+      }
       setReviewModal({ open: true, session })
       setReviewForm({ rating: 0, comment: '' })
     } catch { toast.error('Failed to check review status.') }
@@ -85,25 +87,31 @@ export default function SessionsPage() {
     const revieweeId = s.proposer_id === user.id ? s.participant_id : s.proposer_id
     try {
       await reviewsAPI.create({
-        session_id: s.id,
+        session_id:  s.id,
         reviewee_id: revieweeId,
-        rating: reviewForm.rating,
-        comment: reviewForm.comment,
+        rating:      reviewForm.rating,
+        comment:     reviewForm.comment,
       })
       toast.success('Review submitted! Thank you.')
       setReviewModal({ open: false, session: null })
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to submit review.')
-    } finally { setReviewSaving(false) }
+      fetchSessions()
+    } catch (err) { toast.error(err.response?.data?.error || 'Failed to submit review.') }
+    finally { setReviewSaving(false) }
   }
 
   const openCounter = (session) => {
     setCounterModal({ open: true, session })
-    setCounterForm({ counter_date: session.scheduled_date, counter_time: session.scheduled_time?.slice(0,5) || '', counter_notes: '' })
+    setCounterForm({
+      counter_date:  session.scheduled_date || '',
+      counter_time:  session.scheduled_time?.slice(0, 5) || '',
+      counter_notes: '',
+    })
   }
 
   const submitCounter = async () => {
-    if (!counterForm.counter_date || !counterForm.counter_time) return toast.error('Date and time required.')
+    if (!counterForm.counter_date || !counterForm.counter_time) {
+      return toast.error('Date and time are required.')
+    }
     try {
       await sessionsAPI.counter(counterModal.session.id, counterForm)
       toast.success('Counter-proposal sent!')
@@ -113,13 +121,15 @@ export default function SessionsPage() {
   }
 
   const tabFilters = {
-    upcoming: s => ['proposed', 'confirmed'].includes(s.status),
+    upcoming:  s => ['proposed', 'confirmed'].includes(s.status),
     completed: s => s.status === 'completed',
     cancelled: s => ['cancelled', 'no_show'].includes(s.status),
   }
 
   const filtered = sessions.filter(tabFilters[activeTab] || (() => true))
-  const counts = Object.fromEntries(Object.entries(tabFilters).map(([k, fn]) => [k, sessions.filter(fn).length]))
+  const counts   = Object.fromEntries(
+    Object.entries(tabFilters).map(([k, fn]) => [k, sessions.filter(fn).length])
+  )
 
   if (loading) return <PageSpinner />
 
@@ -130,9 +140,10 @@ export default function SessionsPage() {
         <p className="text-slate-500 mt-1">Track your scheduled and completed learning sessions.</p>
       </div>
 
+      {/* Tabs */}
       <div className="flex gap-2 flex-wrap">
         {[
-          { id: 'upcoming', label: '📅 Upcoming' },
+          { id: 'upcoming',  label: '📅 Upcoming' },
           { id: 'completed', label: '✅ Completed' },
           { id: 'cancelled', label: '❌ Cancelled' },
         ].map(t => (
@@ -150,34 +161,39 @@ export default function SessionsPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState icon={activeTab === 'upcoming' ? '📅' : activeTab === 'completed' ? '✅' : '❌'}
+        <EmptyState
+          icon={activeTab === 'upcoming' ? '📅' : activeTab === 'completed' ? '✅' : '❌'}
           title={`No ${activeTab} sessions`}
           description={activeTab === 'upcoming'
-            ? 'Accept a request and propose a session to get started.'
-            : `No ${activeTab} sessions yet.`
-          } />
+            ? 'Accept a request then propose a session to get started.'
+            : `No ${activeTab} sessions yet.`}
+        />
       ) : (
         <div className="space-y-4">
           {filtered.map(s => (
-            <SessionCard key={s.id} session={s} currentUser={user}
-              onConfirm={() => handleConfirm(s.id)}
-              onComplete={() => handleComplete(s.id)}
-              onCancel={() => handleCancel(s.id)}
-              onNoShow={() => handleNoShow(s.id)}
-              onReview={() => openReview(s)}
-              onCounter={() => openCounter(s)}
+            <SessionCard
+              key={s.id}
+              session={s}
+              currentUser={user}
+              onConfirm={()  => handleConfirm(s.id)}
+              onComplete={()  => handleComplete(s.id)}
+              onCancel={()   => handleCancel(s.id)}
+              onNoShow={()   => handleNoShow(s.id)}
+              onReview={()   => openReview(s)}
+              onCounter={()  => openCounter(s)}
             />
           ))}
         </div>
       )}
 
-      {/* Review Modal */}
+      {/* ── Review Modal ────────────────────────────────────────────────────── */}
       <Modal isOpen={reviewModal.open} onClose={() => setReviewModal({ open: false, session: null })}
         title="Leave a Review">
         {reviewModal.session && (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
-              How was your session{reviewModal.session.skill_name ? ` on ${reviewModal.session.skill_name}` : ''}?
+              How was your session
+              {reviewModal.session.skill_name ? ` on ${reviewModal.session.skill_name}` : ''}?
             </p>
             <div>
               <label className="label">Rating *</label>
@@ -200,10 +216,18 @@ export default function SessionsPage() {
         )}
       </Modal>
 
-      {/* Counter Modal */}
+      {/* ── Counter Modal ───────────────────────────────────────────────────── */}
       <Modal isOpen={counterModal.open} onClose={() => setCounterModal({ open: false, session: null })}
         title="Suggest a Different Time">
         <div className="space-y-4">
+          {counterModal.session && (
+            <div className="p-3 bg-slate-50 rounded-xl text-sm text-slate-600">
+              Current proposal:{' '}
+              <strong>
+                {formatDate(counterModal.session.scheduled_date)} at {formatTime(counterModal.session.scheduled_time)}
+              </strong>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">New Date</label>
@@ -218,9 +242,9 @@ export default function SessionsPage() {
             </div>
           </div>
           <div>
-            <label className="label">Note (optional)</label>
+            <label className="label">Reason (optional)</label>
             <textarea className="input resize-none min-h-[70px]"
-              placeholder="Reason for the change…"
+              placeholder="Why are you suggesting a different time?"
               value={counterForm.counter_notes}
               onChange={e => setCounterForm(p => ({ ...p, counter_notes: e.target.value }))} />
           </div>
@@ -234,19 +258,29 @@ export default function SessionsPage() {
   )
 }
 
-function SessionCard({ session, currentUser, onConfirm, onComplete, onCancel, onNoShow, onReview, onCounter }) {
-  const isProposer = session.proposer_id === currentUser.id
-  const otherName = isProposer ? session.participant_name : session.proposer_name
-  const otherAvatar = isProposer ? session.participant_avatar : session.proposer_avatar
-  const otherId = isProposer ? session.participant_id : session.proposer_id
+/* ─── SessionCard ─────────────────────────────────────────────────────────── */
 
+function SessionCard({ session, currentUser, onConfirm, onComplete, onCancel, onNoShow, onReview, onCounter }) {
+  const isProposer  = session.proposer_id === currentUser.id
+  const otherName   = isProposer ? session.participant_name : session.proposer_name
+  const otherAvatar = isProposer ? session.participant_avatar : session.proposer_avatar
   const myCompleted = isProposer ? session.proposer_completed : session.participant_completed
+
+  // Safe date formatting — avoids parseISO crash on null
+  const dateLabel = formatDate(session.scheduled_date)
+  const timeLabel = formatTime(session.scheduled_time)
+  const duration  = formatDuration(session.duration_minutes)
+
+  // Counter-proposal visible to the proposer only
+  const showCounter = session.counter_date && isProposer && session.status === 'proposed'
 
   return (
     <div className="card p-5">
       <div className="flex items-start gap-4 flex-wrap">
         <Avatar src={otherAvatar} name={otherName} size="md" />
+
         <div className="flex-1 min-w-0">
+          {/* Title row */}
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-semibold text-slate-900">Session with {otherName}</p>
             <StatusBadge status={session.status} />
@@ -255,63 +289,73 @@ function SessionCard({ session, currentUser, onConfirm, onComplete, onCancel, on
             <p className="text-sm text-brand-600 font-medium mt-0.5">{session.skill_name}</p>
           )}
 
+          {/* Time / format */}
           <div className="flex flex-wrap gap-4 mt-3 text-sm text-slate-600">
             <span className="flex items-center gap-1.5">
-              <HiClock className="w-4 h-4 text-slate-400" />
-              {session.scheduled_date ? format(parseISO(session.scheduled_date), 'MMM d, yyyy') : '—'}
-              {' at '}{session.scheduled_time?.slice(0,5)}
-              {' · '}{session.duration_minutes} min
+              <HiClock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              {dateLabel} at {timeLabel} · {duration}
             </span>
             <span className="flex items-center gap-1.5">
               {session.interaction_type === 'online'
                 ? <><HiVideoCamera className="w-4 h-4 text-slate-400" /> Online</>
-                : <><HiLocationMarker className="w-4 h-4 text-slate-400" /> In-person</>
-              }
+                : <><HiLocationMarker className="w-4 h-4 text-slate-400" /> In-person</>}
             </span>
           </div>
 
+          {/* Location / link */}
           {session.location_or_link && (
-            <div className="mt-2 text-sm text-slate-500 truncate">
-              📍 {session.location_or_link.startsWith('http')
-                ? <a href={session.location_or_link} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">{session.location_or_link}</a>
+            <p className="mt-2 text-sm text-slate-500 truncate">
+              📍{' '}
+              {session.location_or_link.startsWith('http')
+                ? <a href={session.location_or_link} target="_blank" rel="noopener noreferrer"
+                    className="text-brand-600 hover:underline">{session.location_or_link}</a>
                 : session.location_or_link
-              }
-            </div>
-          )}
-          {session.notes && <p className="text-xs text-slate-500 mt-1">📝 {session.notes}</p>}
-
-          {/* Counter proposal indicator */}
-          {session.counter_date && session.status === 'proposed' && !isProposer && (
-            <div className="mt-2 p-2 bg-amber-50 rounded-lg text-xs text-amber-700">
-              Counter-proposal: {format(parseISO(session.counter_date), 'MMM d')} at {session.counter_time?.slice(0,5)}
-              {session.counter_notes && ` · ${session.counter_notes}`}
-            </div>
-          )}
-
-          {/* Completion status */}
-          {session.status !== 'completed' && (session.proposer_completed || session.participant_completed) && (
-            <p className="text-xs text-slate-500 mt-2">
-              {session.proposer_completed && session.participant_completed
-                ? '✅ Both marked complete'
-                : myCompleted
-                  ? '⏳ Waiting for the other participant to confirm completion'
-                  : '⏳ The other participant marked this complete — confirm yours'
               }
             </p>
           )}
 
+          {session.notes && (
+            <p className="text-xs text-slate-500 mt-1">📝 {session.notes}</p>
+          )}
+
+          {/* ── Counter-proposal banner (shown to proposer) ────────────────── */}
+          {showCounter && (
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+              <p className="font-medium text-amber-800 mb-1">⏰ Counter-proposal from {otherName}</p>
+              <p className="text-amber-700">
+                New time: <strong>{formatDate(session.counter_date)}</strong> at{' '}
+                <strong>{formatTime(session.counter_time)}</strong>
+              </p>
+              {session.counter_notes && (
+                <p className="text-amber-600 text-xs mt-1 italic">"{session.counter_notes}"</p>
+              )}
+              <p className="text-xs text-amber-500 mt-2">
+                Confirm the session to accept this new time, or suggest yet another time.
+              </p>
+            </div>
+          )}
+
+          {/* Completion tracking */}
+          {session.status !== 'completed' && (session.proposer_completed || session.participant_completed) && (
+            <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+              {myCompleted
+                ? '⏳ Waiting for the other participant to confirm completion'
+                : '⏳ The other participant already marked this complete — confirm yours'}
+            </p>
+          )}
+
           {/* In-person safety note */}
-          {session.interaction_type === 'in-person' && ['proposed','confirmed'].includes(session.status) && (
+          {session.interaction_type === 'in-person' && ['proposed', 'confirmed'].includes(session.status) && (
             <p className="text-xs text-amber-600 mt-2 bg-amber-50 px-2 py-1 rounded-lg">
-              ⚠️ For in-person sessions, consider meeting in a public campus location.
+              ⚠️ For in-person sessions, meet in a public campus location.
             </p>
           )}
         </div>
       </div>
 
-      {/* Actions */}
+      {/* ── Actions ─────────────────────────────────────────────────────────── */}
       <div className="flex gap-2 mt-4 flex-wrap border-t border-slate-50 pt-4">
-        {/* Participant confirms proposed session */}
+        {/* Participant: confirm or counter */}
         {!isProposer && session.status === 'proposed' && (
           <>
             <button onClick={onConfirm} className="btn-primary text-sm py-2">
@@ -322,24 +366,29 @@ function SessionCard({ session, currentUser, onConfirm, onComplete, onCancel, on
             </button>
           </>
         )}
-        {/* Both can complete */}
+
+        {/* Proposer: accept counter-proposal by confirming */}
+        {isProposer && showCounter && (
+          <button onClick={onConfirm} className="btn-primary text-sm py-2">
+            <HiCheck className="w-4 h-4" /> Accept New Time
+          </button>
+        )}
+
+        {/* Both: mark completed */}
         {['confirmed', 'proposed'].includes(session.status) && !myCompleted && (
           <button onClick={onComplete} className="btn-primary text-sm py-2">
             <HiCheck className="w-4 h-4" /> Mark Completed
           </button>
         )}
-        {/* Cancel */}
+
+        {/* Cancel / no-show */}
         {['proposed', 'confirmed'].includes(session.status) && (
-          <button onClick={onCancel} className="btn-ghost text-sm py-2 text-red-600 hover:bg-red-50">
-            Cancel
-          </button>
+          <>
+            <button onClick={onCancel}  className="btn-ghost text-sm py-2 text-red-600 hover:bg-red-50">Cancel</button>
+            <button onClick={onNoShow}  className="btn-ghost text-sm py-2 text-orange-600 hover:bg-orange-50">No-show</button>
+          </>
         )}
-        {/* No-show */}
-        {['confirmed', 'proposed'].includes(session.status) && (
-          <button onClick={onNoShow} className="btn-ghost text-sm py-2 text-orange-600 hover:bg-orange-50">
-            No-show
-          </button>
-        )}
+
         {/* Review */}
         {session.status === 'completed' && (
           <button onClick={onReview} className="btn-secondary text-sm py-2">
